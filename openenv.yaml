@@ -1,0 +1,6 @@
+name: prompt-injection-env
+
+tasks:
+  - easy
+  - medium
+  - hard
