@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from env import PromptInjectionEnv
-from models import Action
+from prompt_env.env import PromptInjectionEnv
+from models import Action   # ✅ FIXED HERE
 
 app = FastAPI()
 env = PromptInjectionEnv()
