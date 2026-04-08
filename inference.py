@@ -125,7 +125,7 @@ def run_task(task):
         if not done:
             state = result.get("observation", {})
 
-    final_score = result.get("info", {}).get("final_score", 0.0)
+    final_score = max(0.01, min(0.99, result.get("info", {}).get("final_score", 0.5)))
     success = final_score >= 0.8
 
     rewards_str = ",".join([f"{r:.2f}" for r in rewards])
