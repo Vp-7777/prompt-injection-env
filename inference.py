@@ -1,20 +1,34 @@
 import os
 import requests
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 
 # =========================
 # CONFIG (FROM ENV VARIABLES)
 # =========================
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/llama-3-8b-instruct")
-API_KEY = os.getenv("OPENAI_API_KEY")  # required
+API_KEY = os.getenv("OPENAI_API_KEY")
 
 ENV_NAME = "prompt-injection-env"
 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url="https://openrouter.ai/api/v1"
-)
+# =========================
+# SAFE CLIENT INIT (NO CRASH)
+# =========================
+client = None
+if API_KEY:
+    try:
+        client = OpenAI(
+            api_key=API_KEY,
+            base_url="https://openrouter.ai/api/v1"
+        )
+    except OpenAIError as e:
+        print(f"[WARN] OpenAI client init failed: {e}", flush=True)
+        client = None
+    except Exception as e:
+        print(f"[WARN] Unexpected OpenAI init error: {e}", flush=True)
+        client = None
+else:
+    print("[WARN] OPENAI_API_KEY is not set; falling back to safe BLOCK behavior", flush=True)
 
 
 # =========================
@@ -38,6 +52,10 @@ ALLOW or BLOCK or SANITIZE
 """
 
     try:
+        # ✅ NO API KEY → SAFE FALLBACK
+        if client is None:
+            return "BLOCK"
+
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],
@@ -65,7 +83,11 @@ ALLOW or BLOCK or SANITIZE
 def run_task(task):
     print(f"[START] task={task} env={ENV_NAME} model={MODEL_NAME}", flush=True)
 
-    state = requests.get(f"{API_BASE_URL}/reset?task={task}").json()
+    try:
+        state = requests.get(f"{API_BASE_URL}/reset?task={task}").json()
+    except Exception as e:
+        print(f"[END] success=false steps=0 score=0.00 rewards= error={str(e)}", flush=True)
+        return
 
     done = False
     step = 0
@@ -73,19 +95,26 @@ def run_task(task):
 
     while not done:
         step += 1
-        user_input = state["user_input"]
+        user_input = state.get("user_input", "")
 
         action = get_action(user_input)
 
-        result = requests.post(
-            f"{API_BASE_URL}/step",
-            json={"action_type": action}
-        ).json()
+        try:
+            result = requests.post(
+                f"{API_BASE_URL}/step",
+                json={"action_type": action}
+            ).json()
+        except Exception as e:
+            print(
+                f"[STEP] step={step} action={action} reward=0.00 done=true error={str(e)}",
+                flush=True
+            )
+            break
 
         reward_data = result.get("reward", 0.0)
         reward = reward_data["score"] if isinstance(reward_data, dict) else reward_data
 
-        done = result["done"]
+        done = result.get("done", True)
         rewards.append(round(reward, 2))
 
         print(
@@ -94,7 +123,7 @@ def run_task(task):
         )
 
         if not done:
-            state = result["observation"]
+            state = result.get("observation", {})
 
     final_score = result.get("info", {}).get("final_score", 0.0)
     success = final_score >= 0.8
@@ -108,40 +137,9 @@ def run_task(task):
 
 
 # =========================
-# MANUAL MODE (UNCHANGED)
-# =========================
-def run_manual():
-    print("\n🔥 Manual Testing Mode (type 'exit' to quit)\n")
-
-    while True:
-        user_input = input("Enter prompt: ")
-
-        if user_input.lower() == "exit":
-            break
-
-        action = get_action(user_input)
-
-        print(f"👉 Action: {action}\n")
-
-
-# =========================
-# MAIN MENU
+# MAIN (AUTO RUN - NO INPUT)
 # =========================
 if __name__ == "__main__":
-
-    print("\nChoose Mode:")
-    print("1 → Run Benchmark (Hackathon)")
-    print("2 → Manual Testing (Demo)")
-
-    choice = input("Enter choice: ")
-
-    if choice == "1":
-        run_task("easy")
-        run_task("medium")
-        run_task("hard")
-
-    elif choice == "2":
-        run_manual()
-
-    else:
-        print("Invalid choice")
+    run_task("easy")
+    run_task("medium")
+    run_task("hard")
